@@ -12,6 +12,7 @@ from core.config import settings
 from core.logger import logger
 from services.llm_service import LLMService
 from services.rag_retriever import retriever
+from services.answer_cache import get_cache
 
 
 class IntentType(Enum):
@@ -103,6 +104,11 @@ class IntentClassifier:
             "就业", "招聘", "实习", "求职", "校招", "春招", "秋招",
             # 新生相关
             "新生", "报到", "军训", "迎新",
+            # 学校概况
+            "学校", "历史", "简介", "概况", "特色", "专业", "学院", "校训",
+            "成立", "创办", "荣誉", "排名", "师资", "学科", "ESI",
+            # 图书馆服务
+            "借阅", "借书", "还书", "续借", "图书", "阅览", "座位",
             # 其他
             "时间", "地点", "电话", "地址", "费用", "条件", "要求", "截止"
         ],
@@ -482,7 +488,23 @@ class AgentWorkflow:
         state: DialogueState
     ) -> Dict[str, Any]:
         """处理知识问答"""
-        # 执行RAG检索
+        # 获取缓存实例
+        cache = get_cache()
+
+        # 1. 尝试从缓存获取答案
+        intent_str = IntentType.KNOWLEDGE_QA.value
+        cached_entry = cache.get(query, embedding=None, intent=intent_str)
+
+        if cached_entry:
+            logger.info(f"[知识问答] 缓存命中，直接返回答案")
+            return {
+                "answer": cached_entry.answer,
+                "sources": cached_entry.sources,
+                "type": "knowledge_qa",
+                "cached": True
+            }
+
+        # 2. 缓存未命中，执行RAG检索
         retrieval_results = await retriever.retrieve(query)
 
         if not retrieval_results:
@@ -493,17 +515,17 @@ class AgentWorkflow:
                 "type": "fallback"
             }
 
-        # 构建上下文
+        # 3. 构建上下文
         context = self._build_context(retrieval_results)
 
-        # 生成答案
+        # 4. 生成答案
         answer = await self.llm.generate_answer(
             query=query,
             context=context,
             history=state.history[-6:]  # 最近3轮对话
         )
 
-        # 提取来源
+        # 5. 提取来源
         sources = [
             {
                 "title": r.metadata.get("title", "未知来源"),
@@ -512,10 +534,20 @@ class AgentWorkflow:
             for r in retrieval_results[:3]
         ]
 
+        # 6. 存入缓存
+        cache.set(
+            query=query,
+            answer=answer,
+            sources=sources,
+            embedding=None,
+            intent=intent_str
+        )
+
         return {
             "answer": answer,
             "sources": sources,
-            "type": "knowledge_qa"
+            "type": "knowledge_qa",
+            "cached": False
         }
 
     async def _handle_personal_query(
@@ -661,8 +693,8 @@ class AgentWorkflow:
         return f"""抱歉，关于"{query[:30]}..."这个问题，我暂时没有找到确切答案。
 
 建议您通过以下方式获取帮助：
-1. 拨打教务处电话：XXX-XXXXXXXX
-2. 发送邮件至：jwc@xxx.edu.cn
+1. 咨询您的辅导员
+2. 拨打教务处电话：(0731) 84618042
 3. 前往行政楼教务处现场咨询
 
 或者您可以换个方式提问，我会尽力帮您解答！"""

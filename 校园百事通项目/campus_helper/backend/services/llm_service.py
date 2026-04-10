@@ -6,7 +6,7 @@ import httpx
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 
-from core.config import settings
+from core.config import settings, new_settings
 from core.logger import logger
 
 
@@ -14,28 +14,34 @@ class LLMService:
     """大语言模型服务"""
 
     def __init__(self):
-        self.provider = settings.LLM_PROVIDER
+        self.provider = new_settings.llm.provider
         self.openai_client = None
         self.anthropic_client = None
-        self.zhipu_client = None
+        self.llm_client = None  # 通用客户端（用于智谱、DeepSeek等OpenAI兼容接口）
 
         if self.provider == "openai":
-            self.openai_client = AsyncOpenAI(
-                api_key=settings.OPENAI_API_KEY,
-                base_url=settings.OPENAI_BASE_URL
-            )
+            provider_config = new_settings.llm.providers.get("openai")
+            if provider_config:
+                self.openai_client = AsyncOpenAI(
+                    api_key=provider_config.api_key,
+                    base_url=provider_config.base_url
+                )
         elif self.provider == "anthropic":
-            self.anthropic_client = AsyncAnthropic(
-                api_key=settings.ANTHROPIC_API_KEY
-            )
-        elif self.provider == "zhipu":
-            # 智谱AI使用OpenAI兼容接口
-            self.zhipu_client = AsyncOpenAI(
-                api_key=settings.ZHIPU_API_KEY,
-                base_url="https://open.bigmodel.cn/api/paas/v4/",
-                timeout=120.0
-            )
-            logger.info(f"智谱AI客户端初始化完成，模型: {settings.ZHIPU_MODEL}")
+            provider_config = new_settings.llm.providers.get("anthropic")
+            if provider_config:
+                self.anthropic_client = AsyncAnthropic(
+                    api_key=provider_config.api_key
+                )
+        elif self.provider in ["zhipu", "deepseek"]:
+            provider_config = new_settings.llm.providers.get(self.provider)
+            if provider_config:
+                # 智谱AI和DeepSeek使用OpenAI兼容接口
+                self.llm_client = AsyncOpenAI(
+                    api_key=provider_config.api_key,
+                    base_url=provider_config.base_url,
+                    timeout=getattr(provider_config, 'timeout', 120.0)
+                )
+                logger.info(f"{self.provider}客户端初始化完成，模型: {provider_config.model}")
 
     async def generate_answer(
         self,
@@ -79,8 +85,8 @@ class LLMService:
                 return await self._call_openai(system_prompt, user_prompt, history)
             elif self.provider == "anthropic":
                 return await self._call_anthropic(system_prompt, user_prompt, history)
-            elif self.provider == "zhipu":
-                return await self._call_zhipu(system_prompt, user_prompt, history)
+            elif self.provider in ["zhipu", "deepseek"]:
+                return await self._call_llm(system_prompt, user_prompt, history)
             else:
                 return await self._call_local(system_prompt, user_prompt)
 
@@ -107,11 +113,16 @@ class LLMService:
 
         messages.append({"role": "user", "content": user_prompt})
 
+        provider_config = new_settings.llm.providers.get("openai")
+        max_tokens = provider_config.max_tokens if provider_config else 1000
+        temperature = provider_config.temperature if provider_config else 0.7
+        model = provider_config.model if provider_config else "gpt-3.5-turbo"
+
         response = await self.openai_client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
+            model=model,
             messages=messages,
-            temperature=0.7,
-            max_tokens=1000
+            temperature=temperature,
+            max_tokens=max_tokens
         )
 
         return response.choices[0].message.content
@@ -135,22 +146,26 @@ class LLMService:
 
         messages.append({"role": "user", "content": user_prompt})
 
+        provider_config = new_settings.llm.providers.get("anthropic")
+        max_tokens = provider_config.max_tokens if provider_config else 1000
+        model = provider_config.model if provider_config else "claude-3-sonnet-20240229"
+
         response = await self.anthropic_client.messages.create(
-            model=settings.ANTHROPIC_MODEL,
+            model=model,
             system=system_prompt,
             messages=messages,
-            max_tokens=1000
+            max_tokens=max_tokens
         )
 
         return response.content[0].text
 
-    async def _call_zhipu(
+    async def _call_llm(
         self,
         system_prompt: str,
         user_prompt: str,
         history: Optional[List[Dict]] = None
     ) -> str:
-        """调用智谱AI API（OpenAI兼容接口）"""
+        """调用LLM API（OpenAI兼容接口，支持智谱、DeepSeek等）"""
         messages = [{"role": "system", "content": system_prompt}]
 
         if history:
@@ -163,19 +178,24 @@ class LLMService:
 
         messages.append({"role": "user", "content": user_prompt})
 
-        logger.info(f"调用智谱AI，模型: {settings.ZHIPU_MODEL}, 消息数: {len(messages)}")
+        provider_config = new_settings.llm.providers.get(self.provider)
+        max_tokens = provider_config.max_tokens if provider_config else 1000
+        temperature = provider_config.temperature if provider_config else 0.7
+        model = provider_config.model if provider_config else "deepseek-chat"
+
+        logger.info(f"调用{self.provider}，模型: {model}, 消息数: {len(messages)}")
 
         try:
-            response = await self.zhipu_client.chat.completions.create(
-                model=settings.ZHIPU_MODEL,
+            response = await self.llm_client.chat.completions.create(
+                model=model,
                 messages=messages,
-                temperature=0.7,
-                max_tokens=1000
+                temperature=temperature,
+                max_tokens=max_tokens
             )
-            logger.info("智谱AI调用成功")
+            logger.info(f"{self.provider}调用成功")
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"智谱AI调用失败: {e}")
+            logger.error(f"{self.provider}调用失败: {e}")
             raise
 
     async def _call_local(
@@ -184,11 +204,15 @@ class LLMService:
         user_prompt: str
     ) -> str:
         """调用本地模型（Ollama）"""
+        provider_config = new_settings.llm.providers.get("local")
+        url = provider_config.url if provider_config else "http://localhost:11434"
+        model = provider_config.model if provider_config else "qwen:7b"
+
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.LOCAL_MODEL_URL}/api/generate",
+                f"{url}/api/generate",
                 json={
-                    "model": settings.LOCAL_MODEL_NAME,
+                    "model": model,
                     "prompt": f"{system_prompt}\n\n{user_prompt}",
                     "stream": False
                 }
@@ -231,7 +255,7 @@ class LLMService:
 
 请提供详细的办理指南。"""
 
-        return await self._call_zhipu(system_prompt, user_prompt)
+        return await self._call_llm(system_prompt, user_prompt)
 
     async def rewrite_query(self, query: str) -> List[str]:
         """

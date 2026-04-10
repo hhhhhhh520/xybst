@@ -70,6 +70,11 @@ class EmbeddingService:
             )
             logger.info(f"[完成] Embedding模型加载完成，维度: {self.model.get_sentence_embedding_dimension()}")
 
+            # 预热模型 - 执行一次推理，避免首次查询延迟
+            logger.info("[预热] 正在预热Embedding模型...")
+            _ = self.model.encode("预热测试", normalize_embeddings=True)
+            logger.info("[完成] Embedding模型预热完成")
+
         except Exception as e:
             logger.error(f"[错误] Embedding模型加载失败: {e}")
             raise

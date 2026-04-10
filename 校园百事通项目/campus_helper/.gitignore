@@ -1,6 +1,9 @@
 # Environment variables - contains sensitive data
 .env
 
+# YAML 本地配置 - 包含API密钥等敏感信息
+config/settings.local.yaml
+
 # Python
 __pycache__/
 *.py[cod]

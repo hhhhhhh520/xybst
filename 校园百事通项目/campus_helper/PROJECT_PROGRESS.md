@@ -1,11 +1,11 @@
 # 校园百事通项目进度记录
 
-**最后更新时间**: 2025-03-30
+**最后更新时间**: 2026-04-10
 **当前阶段**: 开发完成，可演示
 
 ---
 
-## 一、已完成功能 ✅
+## 一、已完成功能
 
 ### 1. 后端核心模块
 - [x] FastAPI框架搭建
@@ -14,6 +14,11 @@
 - [x] LLM服务接口（支持OpenAI/Anthropic/本地模型）
 - [x] 知识库管理服务
 - [x] RESTful API接口
+- [x] YAML分离配置方案
+- [x] 文档智能分块功能（支持语义分块、递归分块）
+- [x] 答案缓存功能（基于问题hash的缓存机制）
+- [x] Embedding模型预热（启动时自动加载）
+- [x] 多LLM提供商支持（OpenAI、DeepSeek、本地模型等）
 
 ### 2. 前端界面
 - [x] 聊天界面
@@ -36,6 +41,7 @@
 - [x] 使用说明 (USAGE.md)
 - [x] 环境配置 (.env.example)
 - [x] 测试用例
+- [x] 变更日志 (CHANGELOG.md)
 
 ---
 
@@ -66,23 +72,42 @@ python backend/main.py
 
 ```
 campus_helper/
-├── backend/              # 后端代码
-│   ├── api/routes.py    # API路由
-│   ├── core/            # 配置、日志
-│   ├── models/          # 数据模型
-│   ├── services/        # 核心服务
-│   └── main.py          # 启动入口
-├── frontend/index.html   # 前端界面
-├── scripts/              # 工具脚本
+├── backend/                    # 后端代码
+│   ├── api/routes.py          # API路由
+│   ├── core/                  # 配置、日志
+│   │   ├── config.py          # 配置管理
+│   │   └── logger.py          # 日志模块
+│   ├── models/                # 数据模型
+│   ├── services/              # 核心服务
+│   │   ├── agent_workflow.py  # Agent工作流引擎
+│   │   ├── answer_cache.py    # 答案缓存服务
+│   │   ├── bm25.py            # BM25检索
+│   │   ├── chunker.py         # 文档分块服务
+│   │   ├── knowledge_base.py  # 知识库管理
+│   │   ├── llm_service.py     # LLM服务（多提供商支持）
+│   │   └── rag_retriever.py   # RAG检索器
+│   └── main.py                # 启动入口
+├── config/                     # YAML配置文件
+│   ├── settings.yaml          # 默认配置
+│   └── settings.local.yaml    # 本地覆盖配置
+├── data/                       # 数据文件
+│   ├── knowledge_base/        # 知识库数据
+│   ├── processed/             # 处理后数据
+│   └── raw_docs/              # 示例文档
+├── models/                     # 本地模型存储
+│   └── embedding/             # Embedding模型
+│       └── BAAI_bge-large-zh-v1.5
+├── frontend/index.html         # 前端界面
+├── scripts/                    # 工具脚本
 │   ├── load_sample_data.py
 │   └── process_documents.py
-├── data/                 # 数据文件
-│   └── raw_docs/        # 示例文档
-├── tests/               # 测试代码
-├── requirements.txt     # 依赖列表
-├── .env.example         # 环境变量示例
-├── README.md            # 项目说明
-└── USAGE.md             # 使用说明
+├── tests/                      # 测试代码
+├── requirements.txt            # 依赖列表
+├── .env.example                # 环境变量示例
+├── README.md                   # 项目说明
+├── USAGE.md                    # 使用说明
+├── CHANGELOG.md                # 变更日志
+└── PROJECT_PROGRESS.md         # 项目进度
 ```
 
 ---
@@ -91,11 +116,16 @@ campus_helper/
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| 智能问答 | ✅ | 基于知识库回答校园问题 |
-| 意图识别 | ✅ | 自动识别问题类型 |
-| 多轮对话 | ✅ | 支持上下文理解 |
-| 知识库管理 | ✅ | 支持添加/搜索文档 |
-| API接口 | ✅ | RESTful API |
+| 智能问答 | 完成 | 基于知识库回答校园问题 |
+| 意图识别 | 完成 | 自动识别问题类型 |
+| 多轮对话 | 完成 | 支持上下文理解 |
+| 知识库管理 | 完成 | 支持添加/搜索文档 |
+| API接口 | 完成 | RESTful API |
+| YAML配置分离 | 完成 | 支持多环境配置 |
+| 文档智能分块 | 完成 | 语义分块、递归分块 |
+| 答案缓存 | 完成 | 减少重复计算，提升响应速度 |
+| Embedding预热 | 完成 | 启动时预加载模型 |
+| 多LLM提供商 | 完成 | OpenAI、DeepSeek、本地模型 |
 
 ---
 
@@ -124,7 +154,7 @@ curl -X POST http://localhost:8000/api/chat \
 ## 六、已知问题
 
 1. **日志编码警告** - Windows控制台GBK编码问题，不影响功能
-2. **需要配置LLM API** - 在 .env 中配置 OPENAI_API_KEY 才能使用完整功能
+2. **需要配置LLM API** - 在 .env 或 config/settings.local.yaml 中配置 API Key 才能使用完整功能
 
 ---
 
@@ -135,8 +165,10 @@ curl -X POST http://localhost:8000/api/chat \
 - [ ] 添加用户认证功能
 - [ ] 优化检索算法
 - [ ] 添加语音交互
+- [ ] 添加对话历史持久化
+- [ ] 支持更多Embedding模型
 
 ---
 
-**项目状态**: ✅ 可演示
-**完成度**: 95%
+**项目状态**: 完成
+**完成度**: 98%

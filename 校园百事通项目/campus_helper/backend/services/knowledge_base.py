@@ -9,6 +9,7 @@ from pathlib import Path
 
 from services.rag_retriever import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from services.chunker import ChunkingManager
 
 from core.config import settings
 from core.logger import logger
@@ -195,7 +196,7 @@ class KnowledgeBaseService:
 
     def __init__(self):
         self.processor = DocumentProcessor()
-        self.chunking = ChunkingStrategy()
+        self.chunk_manager = ChunkingManager()
         self.is_initialized = False
 
     async def initialize(self):
@@ -253,7 +254,7 @@ class KnowledgeBaseService:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
 
-                        # 添加到检索器
+                        # 构建元数据
                         metadata = {
                             'title': file_path.stem,
                             'source': category_name,
@@ -262,14 +263,18 @@ class KnowledgeBaseService:
                             'file_path': str(file_path)
                         }
 
-                        doc = Document(page_content=content, metadata=metadata)
-                        await retriever.add_documents([doc])
-                        doc_count += 1
+                        # 使用分块器进行智能分块
+                        chunk_manager = ChunkingManager()
+                        chunks = chunk_manager.chunk_document(content, metadata, 'policy')
+
+                        # 添加分块后的文档到检索器
+                        await retriever.add_documents(chunks)
+                        doc_count += len(chunks)
 
                     except Exception as e:
                         logger.error(f"加载文档失败 {file_path}: {e}")
 
-        logger.info(f"知识库加载完成，共 {doc_count} 个文档")
+        logger.info(f"知识库加载完成，共 {doc_count} 个文档块")
 
     async def add_document(
         self,
@@ -312,7 +317,7 @@ class KnowledgeBaseService:
         }
 
         # 分块
-        chunks = self.chunking.split_document(
+        chunks = self.chunk_manager.chunk_document(
             cleaned_content,
             metadata,
             doc_type

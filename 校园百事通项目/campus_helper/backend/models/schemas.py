@@ -77,6 +77,7 @@ class ChatResponse(BaseModel):
     type: str = Field(..., description="响应类型")
     sources: Optional[List[dict]] = Field(None, description="引用来源")
     data: Optional[dict] = Field(None, description="附加数据")
+    cached: Optional[bool] = Field(None, description="是否来自缓存")
 
 
 # ========== 文档相关模型 ==========

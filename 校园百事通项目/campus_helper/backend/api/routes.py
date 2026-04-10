@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from models.schemas import ChatRequest, ChatResponse, UserBindRequest, DocumentUpload
 from services.agent_workflow import workflow
 from services.knowledge_base import KnowledgeBaseService
+from services.answer_cache import get_cache
 from core.logger import logger
 
 router = APIRouter()
@@ -38,7 +39,8 @@ async def chat(request: ChatRequest):
             answer=result.get("answer", ""),
             type=result.get("type", "unknown"),
             sources=result.get("sources"),
-            data=result.get("data")
+            data=result.get("data"),
+            cached=result.get("cached")
         )
 
     except Exception as e:
@@ -164,3 +166,79 @@ async def health_check():
         "status": "healthy",
         "timestamp": __import__("datetime").datetime.now().isoformat()
     }
+
+
+# ========== 缓存管理 ==========
+
+
+@router.get("/cache/stats")
+async def cache_stats():
+    """
+    获取缓存统计信息
+
+    返回：
+    - total_requests: 总请求数
+    - cache_hits: 缓存命中次数
+    - cache_misses: 缓存未命中次数
+    - hit_rate: 命中率
+    - current_size: 当前缓存大小
+    - max_size: 最大缓存容量
+    """
+    try:
+        cache = get_cache()
+        stats = cache.get_stats()
+        return stats
+
+    except Exception as e:
+        logger.error(f"获取缓存统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cache/clear")
+async def clear_cache():
+    """
+    清空缓存
+
+    返回：
+    - success: 操作是否成功
+    - cleared_count: 清除的缓存条目数
+    """
+    try:
+        cache = get_cache()
+        cleared_count = cache.clear()
+        logger.info(f"缓存已清空，清除条目数: {cleared_count}")
+
+        return {
+            "success": True,
+            "cleared_count": cleared_count,
+            "message": f"已清空 {cleared_count} 条缓存"
+        }
+
+    except Exception as e:
+        logger.error(f"清空缓存失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cache/entries")
+async def list_cache_entries(limit: int = 100):
+    """
+    获取缓存条目列表（用于调试）
+
+    参数：
+    - limit: 返回条目数量限制（默认100）
+
+    返回：
+    - entries: 缓存条目列表
+    """
+    try:
+        cache = get_cache()
+        entries = cache.get_entries(limit=limit)
+
+        return {
+            "count": len(entries),
+            "entries": entries
+        }
+
+    except Exception as e:
+        logger.error(f"获取缓存条目失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

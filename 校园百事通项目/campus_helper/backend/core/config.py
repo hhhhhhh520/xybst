@@ -1,86 +1,191 @@
 """
-核心配置模块
+核心配置模块 - 兼容层
+
+此文件提供向后兼容，实际配置从 config 模块加载
 """
-import os
+import sys
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from functools import lru_cache
 
+# 添加项目根目录到路径
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-class Settings(BaseSettings):
-    """应用配置"""
+# 从 config 模块导入
+from config import settings, get_settings, Settings
 
-    # 应用信息
-    APP_NAME: str = "校园百事通"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
-    HOST: str = "0.0.0.0"
-    PORT: int = 8000
+# 为了向后兼容，创建一个兼容层类
+class _SettingsCompat:
+    """
+    配置兼容层 - 提供与旧配置相同的属性访问方式
+    """
 
-    # 数据库
-    DATABASE_URL: str = "sqlite:///./data/campus_helper.db"
+    def __init__(self, settings: Settings):
+        self._settings = settings
 
-    # 向量数据库
-    CHROMA_PERSIST_DIR: str = "./data/knowledge_base"
-    CHROMA_COLLECTION_NAME: str = "campus_knowledge"
+    # 应用配置
+    @property
+    def APP_NAME(self) -> str:
+        return self._settings.app.name
 
-    # AI模型配置
-    LLM_PROVIDER: str = "zhipu"  # 默认使用智谱AI
+    @property
+    def APP_VERSION(self) -> str:
+        return self._settings.app.version
 
-    # OpenAI配置
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-3.5-turbo"
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    @property
+    def DEBUG(self) -> bool:
+        return self._settings.app.debug
 
-    # Anthropic配置
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
+    @property
+    def HOST(self) -> str:
+        return self._settings.app.host
+
+    @property
+    def PORT(self) -> int:
+        return self._settings.app.port
+
+    # 数据库配置
+    @property
+    def DATABASE_URL(self) -> str:
+        return self._settings.database.url
+
+    # 向量数据库配置
+    @property
+    def CHROMA_PERSIST_DIR(self) -> str:
+        return self._settings.vector_db.persist_dir
+
+    @property
+    def CHROMA_COLLECTION_NAME(self) -> str:
+        return self._settings.vector_db.collection_name
+
+    # LLM 配置
+    @property
+    def LLM_PROVIDER(self) -> str:
+        return self._settings.llm.provider
+
+    # OpenAI 配置
+    @property
+    def OPENAI_API_KEY(self) -> str:
+        return self._settings.llm.providers.get("openai", ProviderConfig()).api_key
+
+    @property
+    def OPENAI_MODEL(self) -> str:
+        return self._settings.llm.providers.get("openai", ProviderConfig()).model
+
+    @property
+    def OPENAI_BASE_URL(self) -> str:
+        return self._settings.llm.providers.get("openai", ProviderConfig()).base_url
+
+    # Anthropic 配置
+    @property
+    def ANTHROPIC_API_KEY(self) -> str:
+        return self._settings.llm.providers.get("anthropic", ProviderConfig()).api_key
+
+    @property
+    def ANTHROPIC_MODEL(self) -> str:
+        return self._settings.llm.providers.get("anthropic", ProviderConfig()).model
+
+    # 智谱AI 配置
+    @property
+    def ZHIPU_API_KEY(self) -> str:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).api_key
+
+    @property
+    def ZHIPU_MODEL(self) -> str:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).model
+
+    @property
+    def ZHIPU_BASE_URL(self) -> str:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).base_url
+
+    @property
+    def ZHIPU_MAX_TOKENS(self) -> int:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).max_tokens
+
+    @property
+    def ZHIPU_TEMPERATURE(self) -> float:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).temperature
+
+    @property
+    def ZHIPU_TIMEOUT(self) -> float:
+        return self._settings.llm.providers.get("zhipu", ProviderConfig()).timeout
 
     # 本地模型配置
-    LOCAL_MODEL_URL: str = "http://localhost:11434"
-    LOCAL_MODEL_NAME: str = "qwen:7b"
+    @property
+    def LOCAL_MODEL_URL(self) -> str:
+        return self._settings.llm.providers.get("local", ProviderConfig()).url
 
-    # 智谱AI配置
-    ZHIPU_API_KEY: str = ""
-    ZHIPU_MODEL: str = "glm-4-flash"
+    @property
+    def LOCAL_MODEL_NAME(self) -> str:
+        return self._settings.llm.providers.get("local", ProviderConfig()).model
 
-    # Embedding模型
-    EMBEDDING_MODEL: str = "BAAI/bge-large-zh-v1.5"
-    EMBEDDING_DEVICE: str = "cpu"
-    EMBEDDING_CACHE_DIR: str = "./models/embedding"  # 模型本地缓存目录
+    # Embedding 配置
+    @property
+    def EMBEDDING_MODEL(self) -> str:
+        return self._settings.embedding.model
 
-    # RAG配置
-    RAG_TOP_K: int = 5
-    RAG_SIMILARITY_THRESHOLD: float = 0.0  # 设为0，让RRF融合结果都能通过
-    RAG_CHUNK_SIZE: int = 400
-    RAG_CHUNK_OVERLAP: int = 50
+    @property
+    def EMBEDDING_DEVICE(self) -> str:
+        return self._settings.embedding.device
 
-    # BM25配置
-    BM25_K1: float = 1.5  # BM25参数k1
-    BM25_B: float = 0.75  # BM25参数b
+    @property
+    def EMBEDDING_CACHE_DIR(self) -> str:
+        return self._settings.embedding.cache_dir
+
+    # RAG 配置
+    @property
+    def RAG_TOP_K(self) -> int:
+        return self._settings.rag.top_k
+
+    @property
+    def RAG_SIMILARITY_THRESHOLD(self) -> float:
+        return self._settings.rag.similarity_threshold
+
+    @property
+    def RAG_CHUNK_SIZE(self) -> int:
+        return self._settings.rag.chunk_size
+
+    @property
+    def RAG_CHUNK_OVERLAP(self) -> int:
+        return self._settings.rag.chunk_overlap
+
+    # BM25 配置
+    @property
+    def BM25_K1(self) -> float:
+        return self._settings.bm25.k1
+
+    @property
+    def BM25_B(self) -> float:
+        return self._settings.bm25.b
 
     # 安全配置
-    SECRET_KEY: str = "your-secret-key-here"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    @property
+    def SECRET_KEY(self) -> str:
+        return self._settings.security.secret_key
 
-    # 日志
-    LOG_LEVEL: str = "INFO"
-    LOG_FILE: str = "./logs/campus_helper.log"
+    @property
+    def ACCESS_TOKEN_EXPIRE_MINUTES(self) -> int:
+        return self._settings.security.token_expire_minutes
 
-    class Config:
-        env_file = str(Path(__file__).parent.parent.parent / ".env")
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    # 日志配置
+    @property
+    def LOG_LEVEL(self) -> str:
+        return self._settings.logging.level
 
-
-@lru_cache()
-def get_settings() -> Settings:
-    """获取配置（单例）"""
-    # 打印调试信息
-    env_path = Path(".env")
-    if env_path.exists():
-        print(f"[配置] 找到.env文件: {env_path.absolute()}")
-    return Settings()
+    @property
+    def LOG_FILE(self) -> str:
+        return self._settings.logging.file
 
 
-settings = get_settings()
+# 导入 ProviderConfig 用于类型提示
+from config import ProviderConfig
+
+# 创建兼容层实例
+settings_compat = _SettingsCompat(settings)
+
+# 导出 settings 变量（向后兼容）
+# 旧代码使用 settings.SETTING_NAME 的方式仍然有效
+settings = settings_compat
+
+# 同时导出新的配置对象
+new_settings = get_settings()
