@@ -6,6 +6,15 @@ echo    Campus Helper - Start Script
 echo ==========================================
 echo.
 
+:: Kill existing backend processes using PowerShell
+echo [0/2] Checking for existing backend...
+powershell -Command "Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -Command "Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*backend*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+powershell -Command "Stop-Process -Name python -ErrorAction SilentlyContinue"
+timeout /t 2 /nobreak >nul
+echo       Backend processes cleared.
+echo.
+
 :: Activate virtual environment
 if exist venv\Scripts\activate (
     call venv\Scripts\activate

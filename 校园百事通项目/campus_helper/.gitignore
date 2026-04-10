@@ -27,6 +27,14 @@ logs/
 *.db
 *.sqlite3
 
+# ChromaDB vector database (generated at runtime)
+data/knowledge_base/chroma_db/
+
 # Cache
 .cache/
 *.cache
+
+# Test results
+test_results.json
+response_result.json
+unknown_questions.txt
