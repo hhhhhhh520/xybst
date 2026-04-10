@@ -23,6 +23,17 @@
 | 分词 | Jieba |
 | 文档处理 | PyPDF, python-docx, unstructured |
 
+## 核心特性
+
+| 特性 | 描述 |
+|------|------|
+| 多LLM提供商支持 | DeepSeek、智谱、OpenAI、Anthropic、本地Ollama一键切换 |
+| YAML分离配置 | 公共配置与私有配置分离，API密钥安全托管 |
+| 文档智能分块 | MarkdownChunker、FAQChunker多种分块策略 |
+| 答案缓存 | LRU淘汰、语义匹配、命中率统计 |
+| Embedding预热 | 启动时预加载模型，减少首次响应延迟 |
+| 混合检索 | 向量检索 + BM25关键词检索 |
+
 ## 系统架构
 
 ```
@@ -106,14 +117,32 @@ pip install -r requirements.txt
 
 ### 2. 配置环境变量
 
-```bash
-# 复制配置模板
-cp .env.example .env
+项目采用 **YAML分离配置方案**：
 
-# 编辑 .env 文件，配置以下内容：
-# - OPENAI_API_KEY 或 ANTHROPIC_API_KEY
-# - 其他自定义配置
+```bash
+# 复制本地配置模板
+cp config/settings.yaml config/settings.local.yaml
+
+# 编辑 settings.local.yaml，填写你的 API 密钥
+# settings.local.yaml 已加入 .gitignore，不会上传到 GitHub
 ```
+
+**配置文件说明：**
+
+| 文件 | 用途 | 版本控制 |
+|------|------|----------|
+| `config/settings.yaml` | 公共配置（模型名称、参数、阈值等） | 提交到Git |
+| `config/settings.local.yaml` | 私有配置（API密钥等敏感信息） | 不提交 |
+
+**支持的 LLM 提供商：**
+
+| 提供商 | provider值 | 默认模型 |
+|--------|------------|----------|
+| DeepSeek | `deepseek` | deepseek-chat |
+| 智谱AI | `zhipu` | glm-4.7-flash |
+| OpenAI | `openai` | gpt-3.5-turbo |
+| Anthropic | `anthropic` | claude-3-sonnet |
+| 本地Ollama | `local` | qwen:7b |
 
 ### 3. 下载 Embedding 模型
 
@@ -147,24 +176,27 @@ start.bat
 
 ## 核心配置
 
-### 知识库配置
+配置文件位于 `campus_helper/config/settings.yaml`：
 
 ```yaml
-embedding_model: BAAI/bge-large-zh-v1.5
-chunk_size: 400
-chunk_overlap: 50
-top_k: 10
-similarity_threshold: 0.75
-```
+# Embedding模型
+embedding:
+  model: BAAI/bge-large-zh-v1.5
+  device: cpu
 
-### 检索配置
+# RAG配置
+rag:
+  top_k: 5
+  similarity_threshold: 0.0
+  chunk_size: 400
+  chunk_overlap: 50
 
-```yaml
-retrieval:
-  vector_weight: 0.7
-  bm25_weight: 0.3
-  rerank: true
-  rerank_top_n: 5
+# 缓存配置
+cache:
+  enabled: true
+  max_size: 1000
+  ttl_seconds: 3600
+  similarity_threshold: 0.95
 ```
 
 ## API 接口
@@ -185,10 +217,12 @@ curl -X POST http://localhost:8000/api/chat \
 
 ## 技术亮点
 
-- **混合检索策略**：向量检索 + BM25 关键词检索，提升召回准确率
-- **本地 Embedding**：使用 bge-large-zh-v1.5 模型，无需外部 API 调用
-- **语义分块优化**：针对不同文档类型采用差异化分块策略
-- **Agent 工作流**：支持意图识别、多轮对话、任务规划
+- **混合检索策略**：向量检索 + BM25 关键词检索 + RRF融合，提升召回准确率
+- **多LLM提供商**：支持 DeepSeek、智谱、OpenAI、Anthropic、本地 Ollama 一键切换
+- **YAML分离配置**：公共配置与私有配置分离，API密钥安全托管
+- **文档智能分块**：MarkdownChunker、FAQChunker 多种分块策略
+- **答案缓存**：LRU淘汰 + 语义匹配，提升响应速度
+- **Embedding预热**：启动时预加载模型，减少首次响应延迟
 
 ## 项目文档
 
@@ -201,6 +235,9 @@ curl -X POST http://localhost:8000/api/chat \
 | [测试用例](05-测试用例/) | 功能测试用例、效果优化方案 |
 | [项目成果](06-项目成果/) | 量化指标、用户反馈、简历描述 |
 | [论文素材](07-论文素材/) | 论文框架、面试话术 |
+| [campus_helper/README.md](校园百事通项目/campus_helper/README.md) | 详细项目文档 |
+| [campus_helper/ARCHITECTURE.md](校园百事通项目/campus_helper/ARCHITECTURE.md) | 系统架构文档 |
+| [campus_helper/CONFIG_GUIDE.md](校园百事通项目/campus_helper/CONFIG_GUIDE.md) | 配置指南 |
 
 ## 开发计划
 
@@ -222,4 +259,6 @@ MIT License
 
 **项目状态**：持续优化中
 
-**最后更新**：2025年4月
+**当前版本**：v1.1.0
+
+**最后更新**：2026年4月
