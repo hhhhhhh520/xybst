@@ -11,6 +11,9 @@ ENV/
 .env
 .env.local
 
+# YAML 本地配置 - 包含API密钥等敏感信息
+**/settings.local.yaml
+
 # IDE
 .idea/
 .vscode/
