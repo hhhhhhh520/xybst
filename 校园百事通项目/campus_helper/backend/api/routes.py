@@ -2,6 +2,7 @@
 API路由
 """
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from typing import Optional, List, Dict, Any
 
 from models.schemas import ChatRequest, ChatResponse, UserBindRequest, DocumentUpload
@@ -17,35 +18,30 @@ kb_service = KnowledgeBaseService()
 # ========== 对话相关 ==========
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 async def chat(request: ChatRequest):
     """
-    对话接口
+    对话接口（流式输出）
 
     - **message**: 用户消息
     - **session_id**: 会话ID
     - **user_id**: 用户ID
     - **user_info**: 用户信息（可选）
     """
-    try:
-        result = await workflow.process(
+    return StreamingResponse(
+        workflow.process_stream(
             query=request.message,
             session_id=request.session_id,
             user_id=request.user_id,
             user_info=request.user_info
-        )
-
-        return ChatResponse(
-            answer=result.get("answer", ""),
-            type=result.get("type", "unknown"),
-            sources=result.get("sources"),
-            data=result.get("data"),
-            cached=result.get("cached")
-        )
-
-    except Exception as e:
-        logger.error(f"对话处理失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 # ========== 知识库管理 ==========
