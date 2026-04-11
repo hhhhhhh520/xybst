@@ -289,3 +289,76 @@ class LLMService:
             logger.error(f"查询重写失败: {e}")
 
         return [query]
+
+    async def generate_answer_stream(
+        self,
+        query: str,
+        context: str,
+        history: Optional[List[Dict]] = None
+    ):
+        """
+        流式生成答案
+
+        Args:
+            query: 用户问题
+            context: 检索上下文
+            history: 对话历史
+
+        Yields:
+            str: SSE格式的数据块
+        """
+        import json
+
+        # 构建系统提示词
+        system_prompt = """你是"小百"，校园百事通AI助手，专门为师生提供校园信息咨询服务。
+
+你的回答必须基于提供的参考资料，不要编造信息。
+回答结构：
+1. 直接回答（1-2句话）
+2. 详细说明（如有必要）
+3. 下一步建议
+
+重要信息（时间、地点、材料等）请用**加粗**标注。
+"""
+
+        # 构建用户提示词
+        user_prompt = f"""参考资料：
+{context}
+
+用户问题：{query}
+
+请基于参考资料回答用户问题。如果参考资料不足以回答问题，请明确说明。"""
+
+        messages = [{"role": "system", "content": system_prompt}]
+
+        if history:
+            for msg in history:
+                role = "user" if msg.get("role") == "user" else "assistant"
+                messages.append({
+                    "role": role,
+                    "content": msg.get("content", "")
+                })
+
+        messages.append({"role": "user", "content": user_prompt})
+
+        provider_config = new_settings.llm.providers.get(self.provider)
+        model = provider_config.model if provider_config else "deepseek-chat"
+
+        try:
+            # 使用流式调用
+            stream = await self.llm_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1000,
+                stream=True
+            )
+
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': content}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            logger.error(f"流式生成失败: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
