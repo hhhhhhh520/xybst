@@ -8,6 +8,7 @@
 - [核心模块说明](#核心模块说明)
 - [配置加载流程](#配置加载流程)
 - [RAG检索流程](#rag检索流程)
+- [上下文查询重写](#上下文查询重写)
 - [文档分块策略](#文档分块策略)
 - [答案缓存机制](#答案缓存机制)
 - [Embedding预热机制](#embedding预热机制)
@@ -144,13 +145,13 @@ llm:
 
 | 模块 | 类名 | 职责 |
 |------|------|------|
-| `llm_service.py` | `LLMService` | 多LLM提供商统一调用接口 |
+| `llm_service.py` | `LLMService` | 多LLM提供商统一调用接口、上下文查询重写 |
 | `rag_retriever.py` | `RAGRetriever` | RAG检索（向量+BM25+RRF融合） |
 | `knowledge_base.py` | `KnowledgeBaseService` | 知识库管理、文档处理 |
 | `chunker.py` | `ChunkingManager` | 文档智能分块 |
 | `bm25.py` | `BM25` | BM25关键词检索算法 |
 | `answer_cache.py` | `AnswerCache` | 答案缓存（LRU+语义匹配） |
-| `agent_workflow.py` | `AgentWorkflow` | 意图识别、对话管理 |
+| `agent_workflow.py` | `AgentWorkflow` | 意图识别、对话管理、查询重写调度 |
 
 #### 服务依赖关系
 
@@ -395,6 +396,103 @@ def rrf_fusion(
     # 按融合分数排序返回
     return sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
 ```
+
+---
+
+## 上下文查询重写
+
+### 功能概述
+
+上下文查询重写功能用于解决多轮对话中的追问场景问题。当用户对AI的追问给出简短回答时，系统自动将其转换为完整查询。
+
+### 问题场景
+
+```
+用户: 奖学金怎么申请？
+AI: ...你是本科生还是研究生？
+用户: 本科
+AI: （错误）关于"本科"这个问题...  # 应该回答"本科生奖学金申请"
+```
+
+### 解决方案
+
+在意图识别之前，调用 `rewrite_query_with_context()` 方法进行查询重写。
+
+### 处理流程
+
+```
+用户输入: "本科"
+        |
+        v
++------------------------------------------------+
+|         rewrite_query_with_context()           |
++------------------------------------------------+
+        |
+        v
++------------------------------------------------+
+|  1. 检查输入长度 (<=15字符触发重写)             |
+|  2. 构建对话历史摘要 (最近2轮)                  |
+|  3. LLM分析是否为追问回答                       |
+|  4. 如是追问，重写为完整查询                    |
++------------------------------------------------+
+        |
+        v
++------------------------------------------------+
+|  重写结果: "本科生奖学金怎么申请"               |
++------------------------------------------------+
+        |
+        v
++------------------------------------------------+
+|              意图识别 → RAG检索 → 生成答案      |
++------------------------------------------------+
+```
+
+### 核心代码
+
+```python
+# llm_service.py
+async def rewrite_query_with_context(
+    self,
+    query: str,
+    history: Optional[List[Dict]] = None
+) -> str:
+    """根据对话历史重写查询"""
+    if not history or len(query) > 15:
+        return query  # 不需要重写
+
+    # LLM分析上下文并重写
+    # ...
+```
+
+```python
+# agent_workflow.py - process_stream()
+# 0. 上下文查询重写
+rewritten_query = await self.llm.rewrite_query_with_context(
+    query, state.history
+)
+if rewritten_query != query:
+    query = rewritten_query
+
+# 1. 意图识别
+intent, confidence = await IntentClassifier.classify_with_llm(query, self.llm)
+```
+
+### 重写规则
+
+| 条件 | 处理 |
+|------|------|
+| 输入长度 > 15字符 | 不重写，原样返回 |
+| 无对话历史 | 不重写，原样返回 |
+| LLM判断为追问回答 | 重写为完整查询 |
+| LLM判断为完整问题 | 原样返回 |
+
+### 测试验证
+
+| 场景 | 用户输入 | 重写结果 |
+|------|----------|----------|
+| 奖学金追问 | "本科" | "本科生奖学金怎么申请" |
+| 选课追问 | "选修课" | "选修课选课流程是什么" |
+| 完整问题 | "图书馆几点开门" | 原样返回 |
 
 ---
 

@@ -324,6 +324,81 @@ class LLMService:
 
         return [query]
 
+    async def rewrite_query_with_context(
+        self,
+        query: str,
+        history: Optional[List[Dict]] = None
+    ) -> str:
+        """
+        根据对话历史重写查询，将简短回答转换为完整查询
+
+        Args:
+            query: 用户当前输入
+            history: 对话历史
+
+        Returns:
+            重写后的查询（如果需要重写）或原始查询
+        """
+        if not history or len(history) < 2:
+            return query
+
+        # 检查是否是简短回答（可能是对追问的回复）
+        if len(query) > 15:
+            # 较长的输入通常已经是完整问题
+            return query
+
+        # 构建重写提示词
+        system_prompt = """你是一个对话理解助手，专门分析用户回答与上下文的关系。
+
+你的任务是判断用户的当前输入是否是对之前AI追问的回答，如果是，则将其重写为完整的查询。
+
+重写规则：
+1. 如果用户输入是简短回答（如"本科"、"研究生"、"大一"等），且之前的AI回复包含追问，则结合追问重写
+2. 保持用户原意，不要添加额外信息
+3. 如果用户的输入本身就是一个完整问题，则原样返回
+4. 只输出重写后的查询，不要其他解释
+
+示例：
+历史：[用户: 奖学金怎么申请？, AI: ...你是本科生还是研究生？]
+用户输入：本科
+重写结果：本科生奖学金怎么申请
+
+历史：[用户: 图书馆几点开门？, AI: 图书馆开放时间是...]
+用户输入：谢谢
+重写结果：谢谢（无需重写，这是闲聊）
+
+历史：[用户: 选课流程是什么？, AI: ...你想了解哪种类型的选课？（必修/选修）]
+用户输入：选修课
+重写结果：选修课选课流程是什么"""
+
+        # 构建历史摘要
+        history_text = ""
+        for msg in history[-4:]:  # 最近2轮对话
+            role = "用户" if msg.get("role") == "user" else "AI"
+            content = msg.get("content", "")[:200]  # 截断长内容
+            history_text += f"{role}: {content}\n"
+
+        user_prompt = f"""对话历史：
+{history_text}
+
+用户当前输入：{query}
+
+请判断用户输入是否需要结合上下文重写，如果需要则输出重写后的查询，否则原样返回。"""
+
+        try:
+            response = await self._call_llm(system_prompt, user_prompt)
+            rewritten = response.strip()
+
+            # 如果重写结果与原查询差异较大，说明进行了重写
+            if rewritten and rewritten != query:
+                logger.info(f"[查询重写] '{query}' -> '{rewritten}'")
+                return rewritten
+
+        except Exception as e:
+            logger.warning(f"上下文查询重写失败: {e}")
+
+        return query
+
     async def generate_answer_stream(
         self,
         query: str,

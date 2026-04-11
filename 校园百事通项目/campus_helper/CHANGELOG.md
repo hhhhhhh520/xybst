@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-04-11
+
+### Added
+
+- **上下文查询重写功能**
+  - 新增 `rewrite_query_with_context()` 方法，根据对话历史重写用户输入
+  - 自动将简短回答（如"本科"）转换为完整查询（如"本科生奖学金申请"）
+  - 提升多轮对话的上下文理解能力
+  - 仅对15字符以内的简短输入进行重写，避免误改完整问题
+
+### Changed
+
+- **Agent工作流优化**
+  - 在意图识别之前增加查询重写步骤
+  - 改善追问场景下的对话连贯性
+
 ## [1.1.0] - 2026-04-10
 
 ### Added

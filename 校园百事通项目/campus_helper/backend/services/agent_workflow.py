@@ -450,6 +450,12 @@ class AgentWorkflow:
 
         logger.info(f"处理用户输入 [{session_id}]: {query[:50]}...")
 
+        # 0. 上下文查询重写 - 将简短回答转换为完整查询
+        rewritten_query = await self.llm.rewrite_query_with_context(query, state.history)
+        if rewritten_query != query:
+            logger.info(f"[查询重写] 原始: '{query}' -> 重写: '{rewritten_query}'")
+            query = rewritten_query
+
         # 1. 意图识别 - 使用混合策略（关键词 + LLM辅助）
         intent, confidence = await IntentClassifier.classify_with_llm(query, self.llm)
         state.intent = intent
@@ -514,6 +520,12 @@ class AgentWorkflow:
 
         # 发送开始信号
         yield f"data: {json.dumps({'type': 'start', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+        # 0. 上下文查询重写 - 将简短回答转换为完整查询
+        rewritten_query = await self.llm.rewrite_query_with_context(query, state.history)
+        if rewritten_query != query:
+            logger.info(f"[查询重写] 原始: '{query}' -> 重写: '{rewritten_query}'")
+            query = rewritten_query
 
         # 1. 意图识别
         intent, confidence = await IntentClassifier.classify_with_llm(query, self.llm)
