@@ -482,6 +482,135 @@ class AgentWorkflow:
 
         return response
 
+    async def process_stream(
+        self,
+        query: str,
+        session_id: str,
+        user_id: str,
+        user_info: Optional[Dict] = None
+    ):
+        """
+        流式处理用户输入
+
+        Args:
+            query: 用户输入
+            session_id: 会话ID
+            user_id: 用户ID
+            user_info: 用户信息（可选）
+
+        Yields:
+            str: SSE格式的数据块
+        """
+        # 获取对话状态
+        state = self.get_or_create_session(session_id, user_id)
+        state.updated_at = datetime.now()
+
+        # 记录历史
+        state.history.append({
+            "role": "user",
+            "content": query,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        # 发送开始信号
+        yield f"data: {json.dumps({'type': 'start', 'session_id': session_id}, ensure_ascii=False)}\n\n"
+
+        # 1. 意图识别
+        intent, confidence = await IntentClassifier.classify_with_llm(query, self.llm)
+        state.intent = intent
+        state.intent_confidence = confidence
+        logger.info(f"意图识别: {intent.value} (置信度: {confidence:.2f})")
+
+        # 2. 槽位提取
+        new_slots = SlotFiller.extract_slots(query, state.intent)
+        state.filled_slots.update(new_slots)
+
+        # 3. 根据意图执行对应工作流
+        if state.intent == IntentType.KNOWLEDGE_QA:
+            async for chunk in self._handle_knowledge_qa_stream(query, state):
+                yield chunk
+        elif state.intent == IntentType.CHITCHAT:
+            # 闲聊直接返回
+            response = await self._handle_chitchat(query, state)
+            yield f"data: {json.dumps({'type': 'chunk', 'content': response['answer']}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'sources': [], 'cached': False}, ensure_ascii=False)}\n\n"
+        else:
+            # 其他类型按知识问答处理
+            async for chunk in self._handle_knowledge_qa_stream(query, state):
+                yield chunk
+
+    async def _handle_knowledge_qa_stream(
+        self,
+        query: str,
+        state: DialogueState
+    ):
+        """流式处理知识问答"""
+        # 获取缓存实例
+        cache = get_cache()
+        intent_str = IntentType.KNOWLEDGE_QA.value
+
+        # 1. 尝试从缓存获取答案
+        cached_entry = cache.get(query, embedding=None, intent=intent_str)
+
+        if cached_entry:
+            logger.info(f"[知识问答] 缓存命中，返回SSE格式")
+            # 缓存命中，用SSE格式返回完整答案
+            yield f"data: {json.dumps({'type': 'chunk', 'content': cached_entry.answer}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'sources': cached_entry.sources, 'cached': True}, ensure_ascii=False)}\n\n"
+            return
+
+        # 2. 缓存未命中，执行RAG检索
+        retrieval_results = await retriever.retrieve(query)
+
+        if not retrieval_results:
+            # 无检索结果，返回兜底回复
+            fallback = self._generate_fallback_response(query)
+            yield f"data: {json.dumps({'type': 'chunk', 'content': fallback}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'sources': [], 'cached': False}, ensure_ascii=False)}\n\n"
+            return
+
+        # 3. 构建上下文
+        context = self._build_context(retrieval_results)
+
+        # 4. 流式生成答案
+        full_answer = ""
+        async for chunk in self.llm.generate_answer_stream(
+            query=query,
+            context=context,
+            history=state.history[-6:]
+        ):
+            yield chunk
+            # 累积答案
+            if chunk.startswith("data: "):
+                try:
+                    data = json.loads(chunk[6:].strip())
+                    if data.get("type") == "chunk":
+                        full_answer += data.get("content", "")
+                except:
+                    pass
+
+        # 5. 提取来源
+        sources = [
+            {
+                "title": r.metadata.get("title", "未知来源"),
+                "score": round(r.score, 3)
+            }
+            for r in retrieval_results[:3]
+        ]
+
+        # 6. 发送结束信号
+        yield f"data: {json.dumps({'type': 'done', 'sources': sources, 'cached': False}, ensure_ascii=False)}\n\n"
+
+        # 7. 存入缓存
+        if full_answer:
+            cache.set(
+                query=query,
+                answer=full_answer,
+                sources=sources,
+                embedding=None,
+                intent=intent_str
+            )
+
     async def _handle_knowledge_qa(
         self,
         query: str,
