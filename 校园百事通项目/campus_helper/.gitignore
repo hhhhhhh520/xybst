@@ -30,6 +30,9 @@ logs/
 # ChromaDB vector database (generated at runtime)
 data/knowledge_base/chroma_db/
 
+# Embedding models (download separately, ~1.3GB)
+models/embedding/
+
 # Cache
 .cache/
 *.cache

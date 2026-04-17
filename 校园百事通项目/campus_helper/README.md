@@ -1,6 +1,6 @@
 # 校园百事通智能服务系统
 
-基于RAG与Agent技术的校园智能问答系统，使用Python + FastAPI + Vue.js实现。
+基于RAG与Agent技术的校园智能问答系统，使用Python + FastAPI + 原生前端实现。
 
 ## 功能特性
 
@@ -17,7 +17,7 @@
 ## 技术栈
 
 - **后端**: Python 3.9+, FastAPI, LangChain, ChromaDB
-- **前端**: Vue.js 3, Element Plus
+- **前端**: 原生HTML/CSS/JavaScript（无框架依赖，轻量级实现）
 - **AI模型**: 多LLM提供商支持
   - DeepSeek (deepseek-chat)
   - 智谱AI (glm-4.7-flash)
@@ -26,7 +26,7 @@
   - 本地模型 Ollama (qwen:7b)
 - **向量数据库**: ChromaDB
 - **Embedding模型**: BAAI/bge-large-zh-v1.5
-- **部署**: Docker + Docker Compose
+- **部署**: 本地运行（支持Docker化部署，配置文件待添加）
 
 ## 快速开始
 
@@ -87,7 +87,26 @@ llm:
       api_key: "你的DeepSeek API密钥"
 ```
 
-### 3. 准备知识库
+### 3. 下载 Embedding 模型
+
+模型需要单独下载（约1.3GB），首次运行时会自动下载，或手动下载：
+
+```bash
+# 方式一：自动下载（首次运行时）
+python backend/main.py
+# 模型会自动下载到 models/embedding/BAAI_bge-large-zh-v1.5/
+
+# 方式二：手动下载
+pip install huggingface_hub
+huggingface-cli download BAAI/bge-large-zh-v1.5 \
+  --local-dir models/embedding/BAAI_bge-large-zh-v1.5
+
+# 方式三：使用镜像（国内推荐）
+HF_ENDPOINT=https://hf-mirror.com huggingface-cli download BAAI/bge-large-zh-v1.5 \
+  --local-dir models/embedding/BAAI_bge-large-zh-v1.5
+```
+
+### 4. 准备知识库
 
 ```bash
 # 将校园文档放入 data/raw_docs/
@@ -105,21 +124,16 @@ python scripts/process_documents.py
 | FAQChunker | FAQ格式文档，问答对提取 |
 | RecursiveCharacterTextSplitter | 通用文本，按字符递归分块 |
 
-### 4. 启动服务
+### 5. 启动服务
 
 ```bash
 # 启动后端（首次启动会自动预热Embedding模型）
 python backend/main.py
-
-# 启动前端（新终端）
-cd frontend
-npm install
-npm run dev
 ```
 
-### 5. 访问系统
+### 6. 访问系统
 
-- Web界面: http://localhost:5173
+- Web界面: 直接打开 `frontend/index.html`
 - API文档: http://localhost:8000/docs
 
 ## 项目结构
@@ -140,8 +154,7 @@ campus_helper/
 │   │   └── rag_retriever.py     # RAG检索器
 │   └── main.py               # 入口文件
 ├── frontend/                 # 前端代码
-│   ├── src/
-│   └── package.json
+│   └── index.html            # 单文件前端（原生HTML/CSS/JS）
 ├── data/                     # 数据文件
 │   ├── raw_docs/             # 原始文档
 │   ├── processed/            # 处理后文档
