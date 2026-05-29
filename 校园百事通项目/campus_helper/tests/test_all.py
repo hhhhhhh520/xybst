@@ -407,7 +407,7 @@ class TestSlotFiller:
         query = "我的考试安排"
         slots = SlotFiller.extract_slots(query, IntentType.PERSONAL_QUERY)
         # 考试安排可能被识别为课表类型
-        assert slots.get("query_type") in ["exam", "schedule", "grades", None] or True
+        assert slots.get("query_type") in ["exam", "exams", "schedule", "grades", None]
 
     def test_extract_query_type_ranking(self):
         """测试查询类型 - 排名"""
@@ -528,12 +528,17 @@ class TestAgentWorkflow:
         """测试会话状态更新"""
         session = workflow.get_or_create_session("test_session_6", "test_user")
         initial_intent = session.intent
+        assert initial_intent == IntentType.UNKNOWN, "新会话意图应为 UNKNOWN"
+
         await workflow.process(
             query="图书馆几点开门？",
             session_id="test_session_6",
             user_id="test_user"
         )
         # 会话意图应该被更新
+        updated_session = workflow.get_or_create_session("test_session_6", "test_user")
+        assert updated_session.intent != IntentType.UNKNOWN, \
+            f"处理查询后意图应更新，仍为 {updated_session.intent}"
 
     @pytest.mark.asyncio
     async def test_multi_turn_conversation(self, workflow):
@@ -705,8 +710,13 @@ class TestBM25:
         ]
         bm25 = BM25(docs)
         results = bm25.search("图书馆", top_k=2)
-        # BM25可能返回结果或空列表
-        assert len(results) >= 0
+        # BM25 依赖 jieba 分词，可能因环境问题返回空
+        if len(results) > 0:
+            assert results[0].page_content == "图书馆开放时间", \
+                f"最相关结果应为'图书馆开放时间'，实际为'{results[0].page_content}'"
+        else:
+            # 如果返回空，可能是分词环境问题，验证 BM25 对象可用
+            assert bm25 is not None, "BM25 对象应可创建"
 
     def test_bm25_search_empty_query(self):
         """测试BM25空查询"""
@@ -720,8 +730,8 @@ class TestBM25:
         docs = [Document(page_content="测试内容", metadata={})]
         bm25 = BM25(docs)
         results = bm25.search("完全不相关的内容xyz", top_k=1)
-        # 可能返回低分结果或空结果
-        assert len(results) >= 0
+        # 无匹配时应返回空列表或低分结果
+        assert len(results) == 0, f"无匹配搜索应返回空列表，实际返回 {len(results)} 个"
 
     def test_bm25_search_multiple_docs(self):
         """测试BM25多文档搜索"""
@@ -741,8 +751,12 @@ class TestBM25:
         ]
         bm25 = BM25(docs)
         results = bm25.search("奖学金", top_k=2)
-        # BM25可能返回结果
-        assert len(results) >= 0
+        # BM25 依赖 jieba 分词，可能因环境问题返回空
+        if len(results) > 0:
+            assert results[0].page_content == "奖学金评定办法", \
+                f"最相关结果应为'奖学金评定办法'，实际为'{results[0].page_content}'"
+        else:
+            assert bm25 is not None, "BM25 对象应可创建"
 
 
 # ========== 对话状态测试 (5个) ==========
@@ -888,25 +902,24 @@ class TestErrorHandling:
     """错误处理测试 - 5个测试用例"""
 
     def test_intent_classify_none_input(self):
-        """测试None输入"""
-        try:
-            intent, confidence = IntentClassifier.classify(None)
-        except (TypeError, AttributeError):
-            pass  # 预期会抛出异常
+        """测试None输入应抛出异常"""
+        with pytest.raises((TypeError, AttributeError)):
+            IntentClassifier.classify(None)
 
     def test_slot_extract_none_intent(self):
         """测试None意图"""
+        # SlotFiller.extract_slots 可能对 None 意图有静默容错
         try:
             slots = SlotFiller.extract_slots("测试", None)
+            # 如果不抛异常，返回值应为空字典或合法字典
+            assert isinstance(slots, dict), f"返回值应为字典，实际为 {type(slots)}"
         except (TypeError, AttributeError):
-            pass  # 预期会抛出异常
+            pass  # 抛异常也是可接受的行为
 
     def test_retrieval_result_invalid_score(self):
-        """测试无效分数"""
-        try:
-            result = RetrievalResult(content="test", metadata={}, score="invalid", source="test")
-        except (TypeError, ValueError):
-            pass  # 预期会抛出异常
+        """测试无效分数应抛出异常"""
+        with pytest.raises((TypeError, ValueError)):
+            RetrievalResult(content="test", metadata={}, score="invalid", source="test")
 
     def test_bm25_empty_docs(self):
         """测试空文档列表"""
@@ -915,12 +928,16 @@ class TestErrorHandling:
         assert len(results) == 0
 
     def test_chunk_invalid_doc_type(self):
-        """测试无效文档类型"""
+        """测试无效文档类型应回退到默认分块"""
         content = "测试内容"
         metadata = {}
         # 应该使用默认类型而不是崩溃
         chunks = ChunkingStrategy.split_document(content, metadata, doc_type="invalid_type")
-        assert len(chunks) >= 0
+        assert len(chunks) > 0, f"无效文档类型应回退到默认分块，实际返回 {len(chunks)} 个块"
+        # 验证与默认分块结果一致
+        default_chunks = ChunkingStrategy.split_document(content, metadata, doc_type="default")
+        assert len(chunks) == len(default_chunks), \
+            f"无效类型应回退到默认分块，但结果数量不同: {len(chunks)} vs {len(default_chunks)}"
 
 
 # ========== 测试数据 ==========

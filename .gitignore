@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 ENV/
 
 # Environment variables
@@ -31,6 +32,7 @@ logs/
 # Cache
 .cache/
 *.cache
+.coverage
 
 # Large model files (download separately)
 models/embedding/*/
