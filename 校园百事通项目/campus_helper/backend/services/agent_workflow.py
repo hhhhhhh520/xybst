@@ -3,6 +3,7 @@ Agent工作流引擎 - 意图识别、对话管理、任务执行
 """
 import json
 import re
+import time
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -292,40 +293,39 @@ class IntentClassifier:
 
         try:
             # 调用LLM
-            if hasattr(llm_service, '_call_zhipu'):
-                response = await llm_service._call_zhipu(
-                    "你是一个意图分类助手，请准确判断用户意图。",
-                    prompt
-                )
+            response = await llm_service._dispatch(
+                "你是一个意图分类助手，请准确判断用户意图。",
+                prompt
+            )
 
-                logger.info(f"[LLM意图分类] 原始响应: {response}")
+            logger.info(f"[LLM意图分类] 原始响应: {response}")
 
-                # 解析JSON
-                if "{" in response and "}" in response:
-                    start = response.find("{")
-                    end = response.rfind("}") + 1
-                    json_str = response[start:end]
-                    logger.info(f"[LLM意图分类] JSON字符串: {json_str}")
-                    result = json.loads(json_str)
+            # 解析JSON
+            if "{" in response and "}" in response:
+                start = response.find("{")
+                end = response.rfind("}") + 1
+                json_str = response[start:end]
+                logger.info(f"[LLM意图分类] JSON字符串: {json_str}")
+                result = json.loads(json_str)
 
-                    intent_str = result.get("intent", "unknown")
-                    confidence = result.get("confidence", 0.5)
+                intent_str = result.get("intent", "unknown")
+                confidence = result.get("confidence", 0.5)
 
-                    # 映射到IntentType（支持数字和字符串两种格式）
-                    intent_map = {
-                        "knowledge_qa": IntentType.KNOWLEDGE_QA,
-                        "personal_query": IntentType.PERSONAL_QUERY,
-                        "affair_guide": IntentType.AFFAIR_GUIDE,
-                        "chitchat": IntentType.CHITCHAT,
-                        "1": IntentType.KNOWLEDGE_QA,
-                        "2": IntentType.PERSONAL_QUERY,
-                        "3": IntentType.AFFAIR_GUIDE,
-                        "4": IntentType.CHITCHAT
-                    }
+                # 映射到IntentType（支持数字和字符串两种格式）
+                intent_map = {
+                    "knowledge_qa": IntentType.KNOWLEDGE_QA,
+                    "personal_query": IntentType.PERSONAL_QUERY,
+                    "affair_guide": IntentType.AFFAIR_GUIDE,
+                    "chitchat": IntentType.CHITCHAT,
+                    "1": IntentType.KNOWLEDGE_QA,
+                    "2": IntentType.PERSONAL_QUERY,
+                    "3": IntentType.AFFAIR_GUIDE,
+                    "4": IntentType.CHITCHAT
+                }
 
-                    intent = intent_map.get(intent_str, IntentType.UNKNOWN)
-                    logger.info(f"LLM意图分类: {intent.value} (置信度: {confidence})")
-                    return intent, confidence
+                intent = intent_map.get(intent_str, IntentType.UNKNOWN)
+                logger.info(f"LLM意图分类: {intent.value} (置信度: {confidence})")
+                return intent, confidence
 
         except Exception as e:
             logger.error(f"LLM意图分类异常: {e}")
@@ -401,9 +401,27 @@ class SlotFiller:
 class AgentWorkflow:
     """Agent工作流引擎"""
 
+    _SESSION_TTL = 3600        # 会话过期时间（秒）
+    _CLEANUP_INTERVAL = 100    # 每 N 次访问触发一次清理
+
     def __init__(self):
         self.llm = LLMService()
         self.sessions: Dict[str, DialogueState] = {}
+        self._session_last_active: Dict[str, float] = {}
+        self._access_count: int = 0
+
+    def _cleanup_stale_sessions(self):
+        """清理超过 TTL 未活跃的会话"""
+        now = time.time()
+        stale_ids = [
+            sid for sid, last in self._session_last_active.items()
+            if now - last > self._SESSION_TTL
+        ]
+        for sid in stale_ids:
+            self.sessions.pop(sid, None)
+            self._session_last_active.pop(sid, None)
+        if stale_ids:
+            logger.info(f"[清理] 已清除 {len(stale_ids)} 个过期会话")
 
     def get_or_create_session(
         self,
@@ -411,11 +429,19 @@ class AgentWorkflow:
         user_id: str
     ) -> DialogueState:
         """获取或创建对话状态"""
+        now = time.time()
+
+        # 定期清理过期会话
+        self._access_count += 1
+        if self._access_count % self._CLEANUP_INTERVAL == 0:
+            self._cleanup_stale_sessions()
+
         if session_id not in self.sessions:
             self.sessions[session_id] = DialogueState(
                 session_id=session_id,
                 user_id=user_id
             )
+        self._session_last_active[session_id] = now
         return self.sessions[session_id]
 
     async def process(
@@ -425,23 +451,10 @@ class AgentWorkflow:
         user_id: str,
         user_info: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """
-        处理用户输入
-
-        Args:
-            query: 用户输入
-            session_id: 会话ID
-            user_id: 用户ID
-            user_info: 用户信息（可选）
-
-        Returns:
-            处理结果
-        """
-        # 获取对话状态
+        """处理用户输入（非流式）"""
         state = self.get_or_create_session(session_id, user_id)
         state.updated_at = datetime.now()
 
-        # 记录历史
         state.history.append({
             "role": "user",
             "content": query,
@@ -450,24 +463,19 @@ class AgentWorkflow:
 
         logger.info(f"处理用户输入 [{session_id}]: {query[:50]}...")
 
-        # 0. 上下文查询重写 - 将简短回答转换为完整查询
         rewritten_query = await self.llm.rewrite_query_with_context(query, state.history)
         if rewritten_query != query:
             logger.info(f"[查询重写] 原始: '{query}' -> 重写: '{rewritten_query}'")
             query = rewritten_query
 
-        # 1. 意图识别 - 使用混合策略（关键词 + LLM辅助）
         intent, confidence = await IntentClassifier.classify_with_llm(query, self.llm)
         state.intent = intent
         state.intent_confidence = confidence
         logger.info(f"意图识别: {intent.value} (置信度: {confidence:.2f})")
 
-        # 2. 槽位提取
         new_slots = SlotFiller.extract_slots(query, state.intent)
         state.filled_slots.update(new_slots)
-        logger.debug(f"📦 已填充槽位: {state.filled_slots}")
 
-        # 3. 根据意图执行对应工作流
         if state.intent == IntentType.KNOWLEDGE_QA:
             response = await self._handle_knowledge_qa(query, state)
         elif state.intent == IntentType.PERSONAL_QUERY:
@@ -479,7 +487,6 @@ class AgentWorkflow:
         else:
             response = await self._handle_unknown(query, state)
 
-        # 记录助手回复
         state.history.append({
             "role": "assistant",
             "content": response.get("answer", ""),

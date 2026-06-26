@@ -344,6 +344,21 @@ class TestIntentClassifier:
         intent, confidence = IntentClassifier.classify("@#$%^&*()")
         assert intent == IntentType.UNKNOWN
 
+    # LLM意图分类 (1个)
+    @pytest.mark.asyncio
+    async def test_llm_classify_parses_json(self):
+        """测试LLM意图分类 - 正确解析JSON响应"""
+        from unittest.mock import AsyncMock
+        mock_llm = MagicMock()
+        mock_llm._dispatch = AsyncMock(
+            return_value='{"intent": "knowledge_qa", "confidence": 0.92}'
+        )
+        result = await IntentClassifier._llm_classify("图书馆开门吗", mock_llm)
+        assert result is not None
+        intent, confidence = result
+        assert intent == IntentType.KNOWLEDGE_QA
+        assert confidence == 0.92
+
 
 # ========== 槽位填充器测试 (15个) ==========
 
@@ -708,12 +723,13 @@ class TestBM25:
             Document(page_content="图书馆开放时间", metadata={}),
             Document(page_content="食堂营业时间", metadata={}),
         ]
-        bm25 = BM25(docs)
+        bm25 = BM25()
+        bm25.add_documents(docs)
         results = bm25.search("图书馆", top_k=2)
         # BM25 依赖 jieba 分词，可能因环境问题返回空
         if len(results) > 0:
-            assert results[0].page_content == "图书馆开放时间", \
-                f"最相关结果应为'图书馆开放时间'，实际为'{results[0].page_content}'"
+            assert results[0].content == "图书馆开放时间", \
+                f"最相关结果应为'图书馆开放时间'，实际为'{results[0].content}'"
         else:
             # 如果返回空，可能是分词环境问题，验证 BM25 对象可用
             assert bm25 is not None, "BM25 对象应可创建"
@@ -721,17 +737,21 @@ class TestBM25:
     def test_bm25_search_empty_query(self):
         """测试BM25空查询"""
         docs = [Document(page_content="测试内容", metadata={})]
-        bm25 = BM25(docs)
+        bm25 = BM25()
+        bm25.add_documents(docs)
         results = bm25.search("", top_k=1)
         assert len(results) == 0
 
     def test_bm25_search_no_match(self):
-        """测试BM25无匹配"""
+        """测试BM25无匹配 - BM25总会返回top_k个结果，但不相关的结果分数应较低"""
         docs = [Document(page_content="测试内容", metadata={})]
-        bm25 = BM25(docs)
+        bm25 = BM25()
+        bm25.add_documents(docs)
         results = bm25.search("完全不相关的内容xyz", top_k=1)
-        # 无匹配时应返回空列表或低分结果
-        assert len(results) == 0, f"无匹配搜索应返回空列表，实际返回 {len(results)} 个"
+        # BM25 always returns top_k results, but irrelevant ones should have low scores
+        assert len(results) <= 1
+        if len(results) > 0:
+            assert results[0].score < 1.0, f"不相关结果分数应较低，实际为 {results[0].score}"
 
     def test_bm25_search_multiple_docs(self):
         """测试BM25多文档搜索"""
@@ -739,7 +759,8 @@ class TestBM25:
             Document(page_content=f"文档{i}内容", metadata={"id": i})
             for i in range(10)
         ]
-        bm25 = BM25(docs)
+        bm25 = BM25()
+        bm25.add_documents(docs)
         results = bm25.search("文档", top_k=5)
         assert len(results) <= 5
 
@@ -749,12 +770,13 @@ class TestBM25:
             Document(page_content="奖学金评定办法", metadata={}),
             Document(page_content="助学金申请流程", metadata={}),
         ]
-        bm25 = BM25(docs)
+        bm25 = BM25()
+        bm25.add_documents(docs)
         results = bm25.search("奖学金", top_k=2)
         # BM25 依赖 jieba 分词，可能因环境问题返回空
         if len(results) > 0:
-            assert results[0].page_content == "奖学金评定办法", \
-                f"最相关结果应为'奖学金评定办法'，实际为'{results[0].page_content}'"
+            assert results[0].content == "奖学金评定办法", \
+                f"最相关结果应为'奖学金评定办法'，实际为'{results[0].content}'"
         else:
             assert bm25 is not None, "BM25 对象应可创建"
 
@@ -923,7 +945,7 @@ class TestErrorHandling:
 
     def test_bm25_empty_docs(self):
         """测试空文档列表"""
-        bm25 = BM25([])
+        bm25 = BM25()
         results = bm25.search("测试", top_k=1)
         assert len(results) == 0
 

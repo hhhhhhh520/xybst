@@ -1024,7 +1024,7 @@
 
     <script>
         // Configuration
-        const API_BASE = 'http://localhost:8000/api';
+        const API_BASE = '/api';
         let sessionId = 'session_' + Date.now();
         let userId = 'user_' + Math.random().toString(36).substr(2, 9);
         let chatHistory = [];
@@ -1093,7 +1093,7 @@
         // Health Check
         async function checkHealth() {
             try {
-                const res = await fetch('http://localhost:8000/health');
+                const res = await fetch('/health');
                 const data = await res.json();
                 statusDot.classList.add('connected');
                 statusDot.classList.remove('error');
@@ -1295,7 +1295,7 @@
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <polyline points="14 2 14 8 20 8"></polyline>
                         </svg>
-                        来源: ${sources.map(s => s.title).join(', ')}
+                        来源: ${sources.map(s => escapeHtml(s.title)).join(', ')}
                         ${cached ? '<span style="margin-left: 8px; color: var(--success-color);">(缓存)</span>' : ''}
                     </div>
                 `;
@@ -1341,7 +1341,14 @@
         }
 
         // Format Content
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function formatContent(content) {
+            content = escapeHtml(content);
             return content
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\n/g, '<br>')

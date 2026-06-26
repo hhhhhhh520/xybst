@@ -25,8 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"{settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
 
     # 初始化知识库
-    from services.knowledge_base import KnowledgeBaseService
-    kb_service = KnowledgeBaseService()
+    from services.knowledge_base import kb_service
     await kb_service.initialize()
 
     logger.info("系统启动完成")

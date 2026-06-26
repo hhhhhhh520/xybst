@@ -422,30 +422,12 @@ class KnowledgeBaseService:
             是否成功
         """
         try:
-            # 过滤掉要删除的文档
-            original_count = len(retriever.documents)
-            retriever.documents = [
-                doc for doc in retriever.documents
-                if doc.metadata.get('doc_id') != doc_id
-            ]
-
-            # 同时删除对应的向量
-            if len(retriever.vectors) == original_count:
-                # 保持向量和文档的对应关系
-                new_vectors = []
-                new_documents = []
-                for i, doc in enumerate(retriever.documents):
-                    if doc.metadata.get('doc_id') != doc_id:
-                        new_documents.append(doc)
-                        if i < len(retriever.vectors):
-                            new_vectors.append(retriever.vectors[i])
-                retriever.documents = new_documents
-                retriever.vectors = new_vectors
-
-            deleted = len(retriever.documents) < original_count
-            if deleted:
-                logger.info(f"✅ 文档已删除: {doc_id}")
-            return deleted
+            deleted = await retriever.delete_documents_by_metadata('doc_id', doc_id)
+            if deleted > 0:
+                logger.info(f"✅ 文档已删除: {doc_id}, 共 {deleted} 个分块")
+                return True
+            logger.warning(f"⚠️ 未找到文档: {doc_id}")
+            return False
 
         except Exception as e:
             logger.error(f"删除文档失败: {e}")
@@ -481,3 +463,7 @@ class KnowledgeBaseService:
             }
             for r in results
         ]
+
+
+# 全局知识库服务实例（由 main.py lifespan 初始化）
+kb_service = KnowledgeBaseService()

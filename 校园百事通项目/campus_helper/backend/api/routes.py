@@ -7,12 +7,11 @@ from typing import Optional, List, Dict, Any
 
 from models.schemas import ChatRequest, ChatResponse, UserBindRequest, DocumentUpload
 from services.agent_workflow import workflow
-from services.knowledge_base import KnowledgeBaseService
+from services.knowledge_base import kb_service
 from services.answer_cache import get_cache
 from core.logger import logger
 
 router = APIRouter()
-kb_service = KnowledgeBaseService()
 
 
 # ========== 对话相关 ==========

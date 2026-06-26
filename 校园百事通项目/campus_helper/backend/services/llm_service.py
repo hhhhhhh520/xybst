@@ -13,6 +13,51 @@ from core.logger import logger
 class LLMService:
     """大语言模型服务"""
 
+    _SYSTEM_PROMPT = """# 角色设定
+你是"小百"，湖南农业大学的官方AI助手，专门为师生提供校园信息咨询服务。
+你的形象是一位22岁的优秀学长/学姐，熟悉学校的方方面面，热心帮助学弟学妹解决问题。
+
+## 核心能力
+1. 准确回答关于教务、学工、后勤、就业等各类校园事务的咨询
+2. 帮助师生快速找到办事流程、政策文件、联系方式
+3. 根据用户身份（学生/教师、年级、专业）提供个性化信息
+4. 在无法确定答案时，引导用户至正确的部门或人工服务
+
+## 回答规范
+
+### 信息准确性（最重要）
+- 必须基于知识库内容回答，绝对不得编造政策、时间、流程
+- 涉及具体时间、地点、金额的信息，必须核对知识库原文
+- 如知识库信息不足，明确告知："关于这个问题，我的信息可能不够完整，建议您："并提供相关部门联系方式
+- 不确定时宁可说"不知道"，也不要猜测
+
+### 回答结构（标准三段式）
+1. **直接回答**：首先给出用户问题的核心答案（1-2句话）
+2. **详细说明**：如有必要，补充具体细节、条件、流程
+3. **操作指引**：告知用户下一步应该怎么做，提供 actionable 的建议
+
+### 语言风格
+- 对学生：使用"同学"称呼，语气亲切自然，适当使用表情符号
+- 对教师：使用"老师"称呼，语气专业简洁
+- 避免使用过于学术化或技术化的表达
+- 重要信息（截止时间、必需材料等）用**加粗**标注
+- 列表使用数字编号，清晰易读
+
+### 安全与隐私（严格遵循）
+- 绝不询问或存储用户的密码、银行卡号等敏感信息
+- 涉及个人成绩、排名等隐私信息，需确认用户身份后才能提供
+- 不传播未经证实的消息、谣言
+- 遇到投诉或敏感问题，引导至正式渠道
+
+## 边界情况处理
+
+### 非校园问题
+"这个问题超出了我的服务范围呢 😅 我是校园百事通小百，主要帮助解决教务、生活等校园相关问题。"
+
+### 紧急情况
+"这个情况比较紧急，建议您立即拨打相关部门电话或前往现场咨询，以免耽误您的事情。"
+"""
+
     def __init__(self):
         self.provider = new_settings.llm.provider
         self.openai_client = None
@@ -60,51 +105,7 @@ class LLMService:
         Returns:
             生成的答案
         """
-        # 构建系统提示词（完整版本）
-        system_prompt = """# 角色设定
-你是"小百"，湖南农业大学的官方AI助手，专门为师生提供校园信息咨询服务。
-你的形象是一位22岁的优秀学长/学姐，熟悉学校的方方面面，热心帮助学弟学妹解决问题。
-
-## 核心能力
-1. 准确回答关于教务、学工、后勤、就业等各类校园事务的咨询
-2. 帮助师生快速找到办事流程、政策文件、联系方式
-3. 根据用户身份（学生/教师、年级、专业）提供个性化信息
-4. 在无法确定答案时，引导用户至正确的部门或人工服务
-
-## 回答规范
-
-### 信息准确性（最重要）
-- 必须基于知识库内容回答，绝对不得编造政策、时间、流程
-- 涉及具体时间、地点、金额的信息，必须核对知识库原文
-- 如知识库信息不足，明确告知："关于这个问题，我的信息可能不够完整，建议您："并提供相关部门联系方式
-- 不确定时宁可说"不知道"，也不要猜测
-
-### 回答结构（标准三段式）
-1. **直接回答**：首先给出用户问题的核心答案（1-2句话）
-2. **详细说明**：如有必要，补充具体细节、条件、流程
-3. **操作指引**：告知用户下一步应该怎么做，提供 actionable 的建议
-
-### 语言风格
-- 对学生：使用"同学"称呼，语气亲切自然，适当使用表情符号
-- 对教师：使用"老师"称呼，语气专业简洁
-- 避免使用过于学术化或技术化的表达
-- 重要信息（截止时间、必需材料等）用**加粗**标注
-- 列表使用数字编号，清晰易读
-
-### 安全与隐私（严格遵循）
-- 绝不询问或存储用户的密码、银行卡号等敏感信息
-- 涉及个人成绩、排名等隐私信息，需确认用户身份后才能提供
-- 不传播未经证实的消息、谣言
-- 遇到投诉或敏感问题，引导至正式渠道
-
-## 边界情况处理
-
-### 非校园问题
-"这个问题超出了我的服务范围呢 😅 我是校园百事通小百，主要帮助解决教务、生活等校园相关问题。"
-
-### 紧急情况
-"这个情况比较紧急，建议您立即拨打相关部门电话或前往现场咨询，以免耽误您的事情。"
-"""
+        system_prompt = self._SYSTEM_PROMPT
 
         # 构建用户提示词
         user_prompt = f"""参考资料：
@@ -115,14 +116,7 @@ class LLMService:
 请基于参考资料回答用户问题。如果参考资料不足以回答问题，请明确说明。"""
 
         try:
-            if self.provider == "openai":
-                return await self._call_openai(system_prompt, user_prompt, history)
-            elif self.provider == "anthropic":
-                return await self._call_anthropic(system_prompt, user_prompt, history)
-            elif self.provider in ["zhipu", "deepseek"]:
-                return await self._call_llm(system_prompt, user_prompt, history)
-            else:
-                return await self._call_local(system_prompt, user_prompt)
+            return await self._dispatch(system_prompt, user_prompt, history)
 
         except Exception as e:
             logger.error(f"LLM调用失败: {e}")
@@ -254,6 +248,22 @@ class LLMService:
             result = response.json()
             return result.get("response", "")
 
+    async def _dispatch(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        history: Optional[List[Dict]] = None
+    ) -> str:
+        """根据当前 provider 分发到对应的 LLM 调用方法"""
+        if self.provider == "openai":
+            return await self._call_openai(system_prompt, user_prompt, history)
+        elif self.provider == "anthropic":
+            return await self._call_anthropic(system_prompt, user_prompt, history)
+        elif self.provider in ["zhipu", "deepseek"]:
+            return await self._call_llm(system_prompt, user_prompt, history)
+        else:
+            return await self._call_local(system_prompt, user_prompt)
+
     async def generate_guide(
         self,
         query: str,
@@ -289,7 +299,7 @@ class LLMService:
 
 请提供详细的办理指南。"""
 
-        return await self._call_llm(system_prompt, user_prompt)
+        return await self._dispatch(system_prompt, user_prompt)
 
     async def rewrite_query(self, query: str) -> List[str]:
         """
@@ -310,7 +320,7 @@ class LLMService:
 请以JSON数组格式输出扩展后的查询。"""
 
         try:
-            response = await self._call_openai(system_prompt, user_prompt)
+            response = await self._dispatch(system_prompt, user_prompt)
             # 简单解析，实际项目中应使用更健壮的JSON解析
             import json
             # 尝试提取JSON数组
@@ -386,7 +396,7 @@ class LLMService:
 请判断用户输入是否需要结合上下文重写，如果需要则输出重写后的查询，否则原样返回。"""
 
         try:
-            response = await self._call_llm(system_prompt, user_prompt)
+            response = await self._dispatch(system_prompt, user_prompt)
             rewritten = response.strip()
 
             # 如果重写结果与原查询差异较大，说明进行了重写
@@ -418,51 +428,7 @@ class LLMService:
         """
         import json
 
-        # 构建系统提示词（完整版本）
-        system_prompt = """# 角色设定
-你是"小百"，湖南农业大学的官方AI助手，专门为师生提供校园信息咨询服务。
-你的形象是一位22岁的优秀学长/学姐，熟悉学校的方方面面，热心帮助学弟学妹解决问题。
-
-## 核心能力
-1. 准确回答关于教务、学工、后勤、就业等各类校园事务的咨询
-2. 帮助师生快速找到办事流程、政策文件、联系方式
-3. 根据用户身份（学生/教师、年级、专业）提供个性化信息
-4. 在无法确定答案时，引导用户至正确的部门或人工服务
-
-## 回答规范
-
-### 信息准确性（最重要）
-- 必须基于知识库内容回答，绝对不得编造政策、时间、流程
-- 涉及具体时间、地点、金额的信息，必须核对知识库原文
-- 如知识库信息不足，明确告知："关于这个问题，我的信息可能不够完整，建议您："并提供相关部门联系方式
-- 不确定时宁可说"不知道"，也不要猜测
-
-### 回答结构（标准三段式）
-1. **直接回答**：首先给出用户问题的核心答案（1-2句话）
-2. **详细说明**：如有必要，补充具体细节、条件、流程
-3. **操作指引**：告知用户下一步应该怎么做，提供 actionable 的建议
-
-### 语言风格
-- 对学生：使用"同学"称呼，语气亲切自然，适当使用表情符号
-- 对教师：使用"老师"称呼，语气专业简洁
-- 避免使用过于学术化或技术化的表达
-- 重要信息（截止时间、必需材料等）用**加粗**标注
-- 列表使用数字编号，清晰易读
-
-### 安全与隐私（严格遵循）
-- 绝不询问或存储用户的密码、银行卡号等敏感信息
-- 涉及个人成绩、排名等隐私信息，需确认用户身份后才能提供
-- 不传播未经证实的消息、谣言
-- 遇到投诉或敏感问题，引导至正式渠道
-
-## 边界情况处理
-
-### 非校园问题
-"这个问题超出了我的服务范围呢 😅 我是校园百事通小百，主要帮助解决教务、生活等校园相关问题。"
-
-### 紧急情况
-"这个情况比较紧急，建议您立即拨打相关部门电话或前往现场咨询，以免耽误您的事情。"
-"""
+        system_prompt = self._SYSTEM_PROMPT
 
         # 构建用户提示词
         user_prompt = f"""参考资料：
@@ -486,21 +452,33 @@ class LLMService:
 
         provider_config = new_settings.llm.providers.get(self.provider)
         model = provider_config.model if provider_config else "deepseek-chat"
+        temperature = provider_config.temperature if provider_config else 0.7
+        max_tokens = provider_config.max_tokens if provider_config else 1000
 
         try:
-            # 使用流式调用
-            stream = await self.llm_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000,
-                stream=True
-            )
-
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': content}, ensure_ascii=False)}\n\n"
+            # 根据 provider 选择流式调用方式
+            if self.provider in ["zhipu", "deepseek"] and self.llm_client:
+                stream = await self.llm_client.chat.completions.create(
+                    model=model, messages=messages,
+                    temperature=temperature, max_tokens=max_tokens, stream=True
+                )
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content}, ensure_ascii=False)}\n\n"
+            elif self.provider == "openai" and self.openai_client:
+                stream = await self.openai_client.chat.completions.create(
+                    model=model, messages=messages,
+                    temperature=temperature, max_tokens=max_tokens, stream=True
+                )
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content}, ensure_ascii=False)}\n\n"
+            else:
+                # 其他 provider（anthropic/local）降级为非流式
+                result = await self._dispatch(system_prompt, user_prompt, history)
+                yield f"data: {json.dumps({'type': 'chunk', 'content': result}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"流式生成失败: {e}")

@@ -2,6 +2,7 @@
 RAG检索服务 - 向量检索 + BM25关键词检索 + RRF融合
 使用 bge-large-zh 向量模型 + Chroma向量数据库
 """
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -143,8 +144,11 @@ class VectorStore:
         texts = [doc.page_content for doc in documents]
         embeddings = self.embedding_service.embed_documents(texts)
 
-        # 生成ID
-        ids = [f"doc_{i}_{hash(doc.page_content) % 1000000}" for i, doc in enumerate(documents)]
+        # 生成跨重启稳定的文档ID（sha256 前 12 位十六进制）
+        ids = [
+            f"doc_{i}_{hashlib.sha256(doc.page_content.encode('utf-8')).hexdigest()[:12]}"
+            for i, doc in enumerate(documents)
+        ]
 
         # 添加到Chroma
         self.collection.add(
@@ -198,6 +202,20 @@ class VectorStore:
         if self.collection is None:
             return 0
         return self.collection.count()
+
+    def delete_by_metadata(self, key: str, value: str) -> int:
+        """按元数据删除向量，返回删除数量"""
+        if self.collection is None:
+            return 0
+        try:
+            results = self.collection.get(where={key: value})
+            if results['ids']:
+                self.collection.delete(ids=results['ids'])
+                return len(results['ids'])
+            return 0
+        except Exception as e:
+            logger.error(f"[错误] 向量删除失败: {e}")
+            return 0
 
 
 class RAGRetriever:
@@ -412,6 +430,22 @@ class RAGRetriever:
         self.documents.extend(documents)
 
         logger.info(f"[完成] 成功添加 {len(documents)} 个文档片段")
+
+    async def delete_documents_by_metadata(self, key: str, value: str) -> int:
+        """按元数据删除文档（向量 + 内存文档列表）"""
+        if not self.is_initialized:
+            return 0
+
+        # 从向量库删除
+        deleted_vectors = self.vector_store.delete_by_metadata(key, value)
+
+        # 从内存文档列表删除
+        original_len = len(self.documents)
+        self.documents = [d for d in self.documents if d.metadata.get(key) != value]
+        deleted_docs = original_len - len(self.documents)
+
+        logger.info(f"[完成] 删除文档: 向量 {deleted_vectors} 个, 内存文档 {deleted_docs} 个")
+        return deleted_docs
 
     def get_stats(self) -> Dict[str, Any]:
         """获取检索器统计信息"""
